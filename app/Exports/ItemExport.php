@@ -25,59 +25,50 @@ class ItemExport implements FromView
         $previousDate = $currentDate->copy()->subMonth();
 
         // Ambil semua item dari bulan sebelumnya
-        $previousItems = Item::with(['category'])
-            ->when($this->tipe, function ($q) {
-                $q->whereHas('category', function ($q) {
-                    $q->where('type', $this->tipe);
-                });
-            })
-            ->when($this->kategori_id, function ($q) {
-                $q->where('category_id', $this->kategori_id);
-            })
+        $previousItems = Item::with('category')
+            ->when($this->tipe, fn($q) =>
+                $q->whereHas('category', fn($q) =>
+                    $q->where('type', $this->tipe)))
+            ->when($this->kategori_id, fn($q) =>
+                $q->where('category_id', $this->kategori_id))
             ->where(function ($q) use ($previousDate) {
                 $q->whereMonth('created_at', $previousDate->month)
                   ->whereYear('created_at', $previousDate->year)
-                  ->orWhere(function ($q) use ($previousDate) {
-                      $q->whereMonth('updated_at', $previousDate->month)
-                        ->whereYear('updated_at', $previousDate->year);
-                  });
+                  ->orWhereMonth('updated_at', $previousDate->month)
+                  ->whereYear('updated_at', $previousDate->year);
             })
             ->get();
 
-        // Ambil semua item yang diupdate bulan ini
+        // Ambil item yang diupdate bulan ini
         $currentUpdatedItems = Item::with(['category', 'kelurahan.kecamatan'])
-            ->when($this->tipe, function ($q) {
-                $q->whereHas('category', function ($q) {
-                    $q->where('type', $this->tipe);
-                });
-            })
-            ->when($this->kategori_id, function ($q) {
-                $q->where('category_id', $this->kategori_id);
-            })
+            ->when($this->tipe, fn($q) =>
+                $q->whereHas('category', fn($q) =>
+                    $q->where('type', $this->tipe)))
+            ->when($this->kategori_id, fn($q) =>
+                $q->where('category_id', $this->kategori_id))
             ->whereMonth('updated_at', $currentDate->month)
             ->whereYear('updated_at', $currentDate->year)
             ->get();
 
-        // Ambil sisa bulan kemarin yang belum diupdate bulan ini
+        // Ambil sisa bulan lalu yang tidak diupdate
         $notUpdatedItems = $previousItems->filter(function ($item) use ($currentUpdatedItems) {
             return !$currentUpdatedItems->pluck('id')->contains($item->id);
         });
 
-        // Gabungkan data bulan ini (update) + sisa bulan lalu (belum update)
+        // Gabungkan item yang update + yang tidak update (sisa)
         $finalItems = $currentUpdatedItems->concat($notUpdatedItems);
 
-        // Bentuk akhir untuk view Excel
         $mergedItems = collect();
 
         foreach ($finalItems as $item) {
-            // Cari sisa bulan lalu untuk item ini
             $previous = $previousItems->firstWhere('id', $item->id);
+            $sisa = isset($previous) && property_exists($previous, 'sisa') ? $previous->sisa : 0;
 
             $mergedItems->push((object)[
                 'name' => $item->name,
                 'category' => $item->category,
-                'sisa_bulan_kemarin' => (int) ($previous?->sisa ?? 0),
-                'produksi' => (int) $item->produksi,
+                'sisa_bulan_kemarin' => (int) $sisa,
+                'produksi' => isset($item->produksi) ? (int) $item->produksi : 0,
             ]);
         }
 

@@ -22,9 +22,9 @@ class ItemExport implements FromView
     public function view(): View
     {
         $currentDate = Carbon::create($this->tahun, $this->bulan, 1);
-        $previousMonth = $currentDate->copy()->subMonth();
+        $previousDate = $currentDate->copy()->subMonth();
 
-        // Ambil data BULAN SEBELUMNYA
+        // Ambil semua item dari bulan sebelumnya
         $previousItems = Item::with(['category'])
             ->when($this->tipe, function ($q) {
                 $q->whereHas('category', function ($q) {
@@ -34,12 +34,18 @@ class ItemExport implements FromView
             ->when($this->kategori_id, function ($q) {
                 $q->where('category_id', $this->kategori_id);
             })
-            ->whereMonth('created_at', $previousMonth->month)
-            ->whereYear('created_at', $previousMonth->year)
+            ->where(function ($q) use ($previousDate) {
+                $q->whereMonth('created_at', $previousDate->month)
+                  ->whereYear('created_at', $previousDate->year)
+                  ->orWhere(function ($q) use ($previousDate) {
+                      $q->whereMonth('updated_at', $previousDate->month)
+                        ->whereYear('updated_at', $previousDate->year);
+                  });
+            })
             ->get();
 
-        // Ambil data BULAN INI
-        $currentMonthItems = Item::with(['category', 'kelurahan.kecamatan'])
+        // Ambil semua item yang diupdate bulan ini
+        $currentUpdatedItems = Item::with(['category', 'kelurahan.kecamatan'])
             ->when($this->tipe, function ($q) {
                 $q->whereHas('category', function ($q) {
                     $q->where('type', $this->tipe);
@@ -48,35 +54,33 @@ class ItemExport implements FromView
             ->when($this->kategori_id, function ($q) {
                 $q->where('category_id', $this->kategori_id);
             })
-            ->where(function ($q) { 
-                $q->whereMonth('created_at', $this->bulan)
-                  ->whereYear('created_at', $this->tahun)
-                  ->orWhere(function ($q) {
-                      $q->whereMonth('updated_at', $this->bulan)
-                        ->whereYear('updated_at', $this->tahun);
-                  });
-            })
+            ->whereMonth('updated_at', $currentDate->month)
+            ->whereYear('updated_at', $currentDate->year)
             ->get();
 
-        // Koleksi untuk menggabungkan data
+        // Ambil sisa bulan kemarin yang belum diupdate bulan ini
+        $notUpdatedItems = $previousItems->filter(function ($item) use ($currentUpdatedItems) {
+            return !$currentUpdatedItems->pluck('id')->contains($item->id);
+        });
+
+        // Gabungkan data bulan ini (update) + sisa bulan lalu (belum update)
+        $finalItems = $currentUpdatedItems->concat($notUpdatedItems);
+
+        // Bentuk akhir untuk view Excel
         $mergedItems = collect();
 
-        // Hanya item yang memiliki catatan di bulan ini (dibuat atau diupdate) yang akan muncul.
-        foreach ($currentMonthItems as $current) {
-            $previous = $previousItems->firstWhere(fn($item) =>
-                strtolower($item->name) == strtolower($current->name) &&
-                $item->category_id == $current->category_id
-            );
+        foreach ($finalItems as $item) {
+            // Cari sisa bulan lalu untuk item ini
+            $previous = $previousItems->firstWhere('id', $item->id);
 
             $mergedItems->push((object)[
-            'name' => $current->name,
-            'category' => $current->category,
-            'sisa_bulan_kemarin' => (int) ($previous?->sisa ?? 0),
-            'produksi' => (int) $current->produksi,
+                'name' => $item->name,
+                'category' => $item->category,
+                'sisa_bulan_kemarin' => (int) ($previous?->sisa ?? 0),
+                'produksi' => (int) $item->produksi,
             ]);
         }
 
-        // Hitung total untuk semua kolom yang digabungkan
         return view('export.excel-view', [
             'mergedItems' => $mergedItems,
             'totalSisaBulanKemarin' => $mergedItems->sum('sisa_bulan_kemarin'),

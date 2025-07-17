@@ -65,28 +65,27 @@ class ItemExport implements FromView
         foreach ($finalItems as $item) {
             $previous = $previousItems->firstWhere('id', $item->id);
 
-            $sisaBulanLalu = 0;
-            if (!empty($previous) && is_object($previous)) {
-                $sisaBulanLalu = isset($previous->sisa) ? (int) $previous->sisa : 0;
-            }
+            $sisaBulanLalu = (!empty($previous) && isset($previous->sisa)) ? (int) $previous->sisa : 0;
+
+            $isUpdatedThisMonth = $currentUpdatedItems->pluck('id')->contains($item->id);
 
             $mergedItems->push((object)[
                 'name' => $item->name,
                 'category' => $item->category,
                 'sisa_bulan_kemarin' => $sisaBulanLalu,
-                'produksi' => isset($item->produksi) ? (int) $item->produksi : 0,
-                'sisa' => isset($item->sisa) ? (int) $item->sisa : 0,
-                'distribusi' => isset($item->distribusi) ? (int) $item->distribusi : 0,
-                'mati' => isset($item->mati) ? (int) $item->mati : 0,
+                'produksi' => $isUpdatedThisMonth ? (int) ($item->produksi ?? 0) : null,
+                'sisa' => $isUpdatedThisMonth ? (int) ($item->sisa ?? 0) : null,
+                'distribusi' => $isUpdatedThisMonth ? (int) ($item->distribusi ?? 0) : null,
+                'mati' => $isUpdatedThisMonth ? (int) ($item->mati ?? 0) : null,
             ]);
         }
 
         // Hitung total kolom
         $totalSisaBulanKemarin = $mergedItems->sum('sisa_bulan_kemarin');
-        $totalProduksi = $mergedItems->sum('produksi');
-        $totalSisa = $mergedItems->sum('sisa');
-        $totalDistribusi = $mergedItems->sum('distribusi');
-        $totalMati = $mergedItems->sum('mati');
+        $totalProduksi = $mergedItems->filter(fn($i) => isset($i->produksi))->sum('produksi');
+        $totalSisa = $mergedItems->filter(fn($i) => isset($i->sisa))->sum('sisa');
+        $totalDistribusi = $mergedItems->filter(fn($i) => isset($i->distribusi))->sum('distribusi');
+        $totalMati = $mergedItems->filter(fn($i) => isset($i->mati))->sum('mati');
 
         return view('export.excel-view', [
             'mergedItems' => $mergedItems,

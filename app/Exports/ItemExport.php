@@ -65,23 +65,36 @@ class ItemExport implements FromView
         foreach ($finalItems as $item) {
             $previous = $previousItems->firstWhere('id', $item->id);
 
-            $sisa = 0;
+            $sisaBulanLalu = 0;
             if (!empty($previous) && is_object($previous)) {
-                $sisa = isset($previous->sisa) ? (int) $previous->sisa : 0;
+                $sisaBulanLalu = isset($previous->sisa) ? (int) $previous->sisa : 0;
             }
 
             $mergedItems->push((object)[
                 'name' => $item->name,
                 'category' => $item->category,
-                'sisa_bulan_kemarin' => $sisa,
+                'sisa_bulan_kemarin' => $sisaBulanLalu,
                 'produksi' => isset($item->produksi) ? (int) $item->produksi : 0,
+                'sisa' => isset($item->sisa) ? (int) $item->sisa : 0,
+                'distribusi' => isset($item->distribusi) ? (int) $item->distribusi : 0,
+                'mati' => isset($item->mati) ? (int) $item->mati : 0,
             ]);
         }
 
+        // Hitung total kolom
+        $totalSisaBulanKemarin = $mergedItems->sum('sisa_bulan_kemarin');
+        $totalProduksi = $mergedItems->sum('produksi');
+        $totalSisa = $mergedItems->sum('sisa');
+        $totalDistribusi = $mergedItems->sum('distribusi');
+        $totalMati = $mergedItems->sum('mati');
+
         return view('export.excel-view', [
             'mergedItems' => $mergedItems,
-            'totalSisaBulanKemarin' => $mergedItems->sum('sisa_bulan_kemarin'),
-            'totalProduksi' => $mergedItems->sum('produksi'),
+            'totalSisaBulanKemarin' => $totalSisaBulanKemarin,
+            'totalProduksi' => $totalProduksi,
+            'totalSisa' => $totalSisa,
+            'totalDistribusi' => $totalDistribusi,
+            'totalMati' => $totalMati,
         ]);
     }
 }

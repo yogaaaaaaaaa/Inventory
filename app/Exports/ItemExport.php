@@ -24,20 +24,15 @@ class ItemExport implements FromView
         $currentDate = Carbon::create($this->tahun, $this->bulan, 1);
         $previousDate = $currentDate->copy()->subMonth();
 
+        // ✅ Ambil semua item yang DIBUAT di bulan sebelumnya
         $previousItems = Item::with('category')
             ->when($this->tipe, fn($q) =>
                 $q->whereHas('category', fn($q) =>
                     $q->where('type', $this->tipe)))
             ->when($this->kategori_id, fn($q) =>
                 $q->where('category_id', $this->kategori_id))
-            ->where(function ($q) use ($previousDate) {
-                $q->whereMonth('created_at', $previousDate->month)
-                  ->whereYear('created_at', $previousDate->year)
-                  ->orWhere(function ($q) use ($previousDate) {
-                      $q->whereMonth('updated_at', $previousDate->month)
-                        ->whereYear('updated_at', $previousDate->year);
-                  });
-            })
+            ->whereMonth('created_at', $previousDate->month)
+            ->whereYear('created_at', $previousDate->year)
             ->get();
 
         // Ambil item yang diupdate bulan ini
@@ -51,10 +46,12 @@ class ItemExport implements FromView
             ->whereYear('updated_at', $currentDate->year)
             ->get();
 
+        // Ambil data bulan sebelumnya yang tidak diupdate
         $notUpdatedItems = $previousItems->filter(function ($item) use ($currentUpdatedItems) {
             return !$currentUpdatedItems->pluck('id')->contains($item->id);
         });
 
+        // Gabungkan item yang update + belum update
         $finalItems = $currentUpdatedItems->concat($notUpdatedItems);
 
         $mergedItems = collect();
@@ -69,6 +66,7 @@ class ItemExport implements FromView
             $distribusi = $isUpdatedThisMonth ? (int) ($item->distribusi ?? 0) : null;
             $mati = $isUpdatedThisMonth ? (int) ($item->mati ?? 0) : null;
 
+            // ✅ Hitung sisa secara manual agar tidak double akumulasi
             $sisa = $isUpdatedThisMonth
                 ? ($sisaBulanLalu + $produksi - $distribusi - $mati)
                 : null;
@@ -84,7 +82,6 @@ class ItemExport implements FromView
             ]);
         }
 
-        // Hitung total kolom
         return view('export.excel-view', [
             'mergedItems' => $mergedItems,
             'totalSisaBulanKemarin' => $mergedItems->sum('sisa_bulan_kemarin'),

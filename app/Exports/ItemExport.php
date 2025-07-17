@@ -34,8 +34,10 @@ class ItemExport implements FromView
             ->where(function ($q) use ($previousDate) {
                 $q->whereMonth('created_at', $previousDate->month)
                   ->whereYear('created_at', $previousDate->year)
-                  ->orWhereMonth('updated_at', $previousDate->month)
-                  ->whereYear('updated_at', $previousDate->year);
+                  ->orWhere(function ($q) use ($previousDate) {
+                      $q->whereMonth('updated_at', $previousDate->month)
+                        ->whereYear('updated_at', $previousDate->year);
+                  });
             })
             ->get();
 
@@ -50,7 +52,7 @@ class ItemExport implements FromView
             ->whereYear('updated_at', $currentDate->year)
             ->get();
 
-        // Ambil sisa bulan lalu yang tidak diupdate
+        // Ambil sisa bulan lalu yang belum diupdate
         $notUpdatedItems = $previousItems->filter(function ($item) use ($currentUpdatedItems) {
             return !$currentUpdatedItems->pluck('id')->contains($item->id);
         });
@@ -62,12 +64,16 @@ class ItemExport implements FromView
 
         foreach ($finalItems as $item) {
             $previous = $previousItems->firstWhere('id', $item->id);
-            $sisa = isset($previous) && property_exists($previous, 'sisa') ? $previous->sisa : 0;
+
+            $sisa = 0;
+            if (!empty($previous) && is_object($previous)) {
+                $sisa = isset($previous->sisa) ? (int) $previous->sisa : 0;
+            }
 
             $mergedItems->push((object)[
                 'name' => $item->name,
                 'category' => $item->category,
-                'sisa_bulan_kemarin' => (int) $sisa,
+                'sisa_bulan_kemarin' => $sisa,
                 'produksi' => isset($item->produksi) ? (int) $item->produksi : 0,
             ]);
         }

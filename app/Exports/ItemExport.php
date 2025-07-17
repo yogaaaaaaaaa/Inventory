@@ -24,7 +24,6 @@ class ItemExport implements FromView
         $currentDate = Carbon::create($this->tahun, $this->bulan, 1);
         $previousDate = $currentDate->copy()->subMonth();
 
-        // Ambil semua item dari bulan sebelumnya
         $previousItems = Item::with('category')
             ->when($this->tipe, fn($q) =>
                 $q->whereHas('category', fn($q) =>
@@ -52,48 +51,47 @@ class ItemExport implements FromView
             ->whereYear('updated_at', $currentDate->year)
             ->get();
 
-        // Ambil sisa bulan lalu yang belum diupdate
         $notUpdatedItems = $previousItems->filter(function ($item) use ($currentUpdatedItems) {
             return !$currentUpdatedItems->pluck('id')->contains($item->id);
         });
 
-        // Gabungkan item yang update + yang tidak update (sisa)
         $finalItems = $currentUpdatedItems->concat($notUpdatedItems);
 
         $mergedItems = collect();
 
         foreach ($finalItems as $item) {
             $previous = $previousItems->firstWhere('id', $item->id);
-
             $sisaBulanLalu = (!empty($previous) && isset($previous->sisa)) ? (int) $previous->sisa : 0;
 
             $isUpdatedThisMonth = $currentUpdatedItems->pluck('id')->contains($item->id);
+
+            $produksi = $isUpdatedThisMonth ? (int) ($item->produksi ?? 0) : null;
+            $distribusi = $isUpdatedThisMonth ? (int) ($item->distribusi ?? 0) : null;
+            $mati = $isUpdatedThisMonth ? (int) ($item->mati ?? 0) : null;
+
+            $sisa = $isUpdatedThisMonth
+                ? ($sisaBulanLalu + $produksi - $distribusi - $mati)
+                : null;
 
             $mergedItems->push((object)[
                 'name' => $item->name,
                 'category' => $item->category,
                 'sisa_bulan_kemarin' => $sisaBulanLalu,
-                'produksi' => $isUpdatedThisMonth ? (int) ($item->produksi ?? 0) : null,
-                'sisa' => $isUpdatedThisMonth ? (int) ($item->sisa ?? 0) : null,
-                'distribusi' => $isUpdatedThisMonth ? (int) ($item->distribusi ?? 0) : null,
-                'mati' => $isUpdatedThisMonth ? (int) ($item->mati ?? 0) : null,
+                'produksi' => $produksi,
+                'distribusi' => $distribusi,
+                'mati' => $mati,
+                'sisa' => $sisa,
             ]);
         }
 
         // Hitung total kolom
-        $totalSisaBulanKemarin = $mergedItems->sum('sisa_bulan_kemarin');
-        $totalProduksi = $mergedItems->filter(fn($i) => isset($i->produksi))->sum('produksi');
-        $totalSisa = $mergedItems->filter(fn($i) => isset($i->sisa))->sum('sisa');
-        $totalDistribusi = $mergedItems->filter(fn($i) => isset($i->distribusi))->sum('distribusi');
-        $totalMati = $mergedItems->filter(fn($i) => isset($i->mati))->sum('mati');
-
         return view('export.excel-view', [
             'mergedItems' => $mergedItems,
-            'totalSisaBulanKemarin' => $totalSisaBulanKemarin,
-            'totalProduksi' => $totalProduksi,
-            'totalSisa' => $totalSisa,
-            'totalDistribusi' => $totalDistribusi,
-            'totalMati' => $totalMati,
+            'totalSisaBulanKemarin' => $mergedItems->sum('sisa_bulan_kemarin'),
+            'totalProduksi' => $mergedItems->filter(fn($i) => isset($i->produksi))->sum('produksi'),
+            'totalDistribusi' => $mergedItems->filter(fn($i) => isset($i->distribusi))->sum('distribusi'),
+            'totalMati' => $mergedItems->filter(fn($i) => isset($i->mati))->sum('mati'),
+            'totalSisa' => $mergedItems->filter(fn($i) => isset($i->sisa))->sum('sisa'),
         ]);
     }
 }
